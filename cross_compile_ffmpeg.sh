@@ -33,6 +33,11 @@ set_box_memory_size_bytes() {
   fi
 }
 
+set_ffmpeg_stable_release_version() {
+  # set latest version
+  ffmpeg_stable_release_version=$(curl https://ffmpeg.org/releases/ | sed -e 's/.*<a href="ffmpeg-\([0-9].*\).tar.bz2">.*/\1/' | grep '^[0-9]' | sort -n | tail -n1 || exit 1)
+}
+
 function sortable_version { echo "$@" | awk -F. '{ printf("%d%03d%03d%03d\n", $1,$2,$3,$4); }'; }
 
 ver_comp() { # params: required actual
@@ -482,9 +487,9 @@ echo_and_exit() {
 
 # takes a url, output_dir as params, output_dir optional
 download_and_unpack_file() {
-  url="$1"
-  output_name=$(basename $url)
-  output_dir="$2"
+  local url="$1"
+  local output_name=$(basename $url)
+  local output_dir="$2"
   if [[ -z $output_dir ]]; then
     output_dir=$(basename $url | sed s/\.tar\.*//) # remove .tar.xx
   fi
@@ -1735,8 +1740,14 @@ build_ffmpeg() {
   else
     postpend_configure_opts="--enable-static --disable-shared --prefix=$mingw_w64_x86_64_prefix"
   fi
-
-  do_git_checkout https://github.com/FFmpeg/FFmpeg.git $output_dir $ffmpeg_git_checkout_version
+  if [[ $prefer_stable = "y" ]] && [[ ! -z $ffmpeg_stable_release_version ]]; then
+    local ffmpeg_basename=ffmpeg-${ffmpeg_stable_release_version}
+    download_and_unpack_file https://ffmpeg.org/releases/${ffmpeg_basename}.tar.bz2
+    # we don't `mv $ffmpeg_basename $output_dir` to avoid downloading and unpacking the same file again (cf. download_and_unpack_file())
+    output_dir=$ffmpeg_basename
+  else
+    do_git_checkout https://github.com/FFmpeg/FFmpeg.git $output_dir $ffmpeg_git_checkout_version
+  fi
   cd $output_dir
     apply_patch file://$patch_dir/frei0r_load-shared-libraries-dynamically.diff
 
@@ -2040,7 +2051,7 @@ build_mplayer=n
 build_vlc=n
 build_lsw=n # To build x264 with L-Smash-Works.
 git_get_latest=y
-prefer_stable=y # Only for x264 and x265.
+prefer_stable=y # For FFmpeg and x264, x265.
 build_intel_qsv=y # note: not windows xp friendly!
 build_amd_amf=y
 disable_nonfree=y # comment out to force user y/n selection
@@ -2060,6 +2071,7 @@ original_cflags='-mtune=generic -O3' # high compatible by default, see #219, som
 #  original_cflags='-mtune=generic -O2'
 #fi
 ffmpeg_git_checkout_version=
+ffmpeg_stable_release_version=
 build_ismindex=n
 enable_gpl=y
 build_x264_with_libav=n # To build x264 with Libavformat.
@@ -2070,7 +2082,8 @@ while true; do
     -h | --help ) echo "available option=default_value:
       --build-ffmpeg-static=y  (ffmpeg.exe, ffplay.exe and ffprobe.exe)
       --build-ffmpeg-shared=n  (ffmpeg.exe (with libavformat-x.dll, etc., ffplay.exe, ffprobe.exe and dll-files)
-      --ffmpeg-git-checkout-version=[master] if you want to build a particular version of FFmpeg, ex: n3.1.1 or a specific git hash
+      --ffmpeg-git-checkout-version=[master] if you want to build a particular version of FFmpeg, ex: n3.1.1 or a specific git hash with --prefer-stable=n
+      --ffmpeg-stable-release-version=[latest] if you want to build a particular release version of FFmpeg, ex: 4.0.2 or a specific version with --prefer-stable=y
       --gcc-cpu-count=[number of cpu cores set it higher than 1 if you have multiple cores and > 1GB RAM, this speeds up initial cross compiler build. FFmpeg build uses number of cores no matter what]
       --disable-nonfree=y (set to n to include nonfree like libfdk-aac,decklink)
       --build-intel-qsv=y (set to y to include the [non windows xp compat.] qsv library and ffmpeg module. NB this not not hevc_qsv...
@@ -2088,7 +2101,7 @@ while true; do
       --cflags=[default is $original_cflags, which works on any cpu, see README for options]
       --git-get-latest=y [do a git pull for latest code from repositories like FFmpeg--can force a rebuild if changes are detected]
       --build-x264-with-libav=n build x264.exe with bundled/included "libav" ffmpeg libraries within it
-      --prefer-stable=y build a few libraries from releases instead of git master
+      --prefer-stable=y build FFmpeg and a few libraries from releases instead of git master
       --high-bitdepth=n Enable high bit depth for x264 (10 bits) and x265 (10 and 12 bits, x64 build. Not officially supported on x86 (win32), but enabled by disabling its assembly).
       --debug Make this script  print out each line as it executes
       --enable-gpl=[y] set to n to do an lgpl build
@@ -2096,6 +2109,7 @@ while true; do
     --sandbox-ok=* ) sandbox_ok="${1#*=}"; shift ;;
     --gcc-cpu-count=* ) gcc_cpu_count="${1#*=}"; shift ;;
     --ffmpeg-git-checkout-version=* ) ffmpeg_git_checkout_version="${1#*=}"; shift ;;
+    --ffmpeg-stable-release-version=* ) ffmpeg_stable_release_version="${1#*=}"; shift ;;
     --build-libmxf=* ) build_libmxf="${1#*=}"; shift ;;
     --build-mp4box=* ) build_mp4box="${1#*=}"; shift ;;
     --build-ismindex=* ) build_ismindex="${1#*=}"; shift ;;
